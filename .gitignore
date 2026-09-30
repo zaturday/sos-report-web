@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.env
+.venv
+
+# Distribution
+dist/
+build/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp files
+*.tmp
+/tmp/
+
+# Large data files (sosreport archives)
+*.tar.xz
+*.tar.gz
+*.txz
+*.tgz
+
+# Test reports
+report_*.html
+
+# Server logs
+server.log

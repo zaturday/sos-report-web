@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SOS Report - SOS Report</title>
+    <style>
+        :root {
+            --primary: #1a56db;
+            --primary-light: #e8f0fe;
+            --success: #0d6b3d;
+            --warning: #b06000;
+            --danger: #b00020;
+            --gray: #6b7280;
+            --gray-light: #f3f4f6;
+            --border: #e5e7eb;
+        }
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            line-height: 1.6;
+            color: #1f2937;
+            background: #f9fafb;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            background: linear-gradient(135deg, #1a56db 0%, #0d3b8f 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        
+        header .subtitle {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+        
+        .section {
+            background: white;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .section-header {
+            background: var(--gray-light);
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .section-icon {
+            font-size: 20px;
+        }
+        
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #111827;
+        }
+        
+        .section-content {
+            padding: 20px;
+        }
+        
+        .info-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 15px;
+        }
+        
+        .info-table td {
+            padding: 10px 15px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: top;
+        }
+        
+        .info-table .info-key {
+            font-weight: 600;
+            color: #374151;
+            width: 200px;
+            background: var(--gray-light);
+        }
+        
+        .info-table .info-val {
+            color: #4b5563;
+        }
+        
+        .info-table tr:last-child td {
+            border-bottom: none;
+        }
+        
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        
+        .data-table th, .data-table td {
+            padding: 10px 15px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .data-table th {
+            background: var(--gray-light);
+            font-weight: 600;
+            color: #374151;
+        }
+        
+        .data-table tr:hover {
+            background: var(--primary-light);
+        }
+        
+        .item-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+        
+        .item-list li {
+            padding: 8px 15px;
+            margin-bottom: 5px;
+            background: var(--gray-light);
+            border-radius: 4px;
+            border-left: 3px solid var(--primary);
+        }
+        
+        .item-list li:hover {
+            background: #fff;
+        }
+        
+        .log-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+        
+        .log-list li {
+            padding: 10px 15px;
+            margin-bottom: 5px;
+            border-radius: 4px;
+            font-family: 'Consolas', monospace;
+            font-size: 13px;
+        }
+        
+        .log-error {
+            background: #fef2f2;
+            border-left: 3px solid var(--danger);
+            color: #991b1b;
+        }
+        
+        .log-critical {
+            background: #fff7ed;
+            border-left: 3px solid var(--warning);
+            color: #9a3412;
+        }
+        
+        .empty-msg {
+            color: var(--gray);
+            font-style: italic;
+            padding: 15px;
+            text-align: center;
+        }
+        
+        .note {
+            color: var(--gray);
+            font-size: 13px;
+            margin-top: 10px;
+            padding: 8px;
+            background: var(--gray-light);
+            border-radius: 4px;
+        }
+        
+        .subsection {
+            margin-top: 20px;
+        }
+        
+        .subsection h3 {
+            font-size: 15px;
+            margin-bottom: 10px;
+            color: #111827;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 5px;
+        }
+        
+        footer {
+            text-align: center;
+            padding: 30px;
+            color: var(--gray);
+            font-size: 13px;
+        }
+        
+        @media print {
+            body { background: white; }
+            .section { box-shadow: none; break-inside: avoid; page-break-inside: avoid; }
+            header { background: #1a56db !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+        
+        @media (max-width: 768px) {
+            .info-table .info-key { width: 120px; font-size: 14px; }
+            .container { padding: 10px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>SOS Report</h1>
+            <div class="subtitle">
+                SOS Report Analysis for RHEL 9 | Generated: 2026-09-29 11:45:29
+            </div>
+        </header>
+        
+        
+        <div class="section">
+            <div class="section-header">
+                <span class="section-icon">💻</span>
+                <h2 class="section-title">System Information</h2>
+            </div>
+            <div class="section-content">
+                <table class="info-table"><tbody><tr><td class="info-key">Hostname</td><td class="info-val">webserver01.example.com</td><td class="info-key">Kernel</td><td class="info-val">9.3 (Plow)</td><td class="info-val"></td></tr><tr><td class="info-key">OS Version</td><td class="info-val">9.3 (Plow)</td><td class="info-key">Arch</td><td class="info-val">2026-09-29 11:45:29</td><td class="info-val"></td></tr><tr><td class="info-key">Generated</td><td class="info-val">2026-09-29 11:45:29</td><td class="info-key">Report Archive</td><td class="info-val">test_sosreport.tar.xz</td><td class="info-val"></td></tr></tbody></table>
+            </div>
+        </div>
+        
+        
+        <div class="section">
+            <div class="section-header">
+                <span class="section-icon">⚙️</span>
+                <h2 class="section-title">Hardware</h2>
+            </div>
+            <div class="section-content">
+                <table class="info-table"><tbody><tr><td class="info-key">CPU</td><td class="info-val">Intel(R) Xeon(R) Silver 4210 CPU @ 2.20GHz</td><td class="info-key">CPU Cores</td><td class="info-val">15.56 GB</td><td class="info-val"></td></tr><tr><td class="info-key">Memory</td><td class="info-val">15.56 GB</td><td class="info-key">Manufacturer</td><td class="info-val">KVM</td><td class="info-val"></td></tr><tr><td class="info-key">Product Name</td><td class="info-val">KVM</td><td class="info-key">Serial Number</td><td class="info-val">3 found</td><td class="info-val"></td></tr><tr><td class="info-key">Storage Devices</td><td class="info-val">3 found</td><td></td><td></td></tr></tbody></table><div class="subsection"><h3>Disk Devices</h3><table class="data-table"><thead><tr><th>Device</th><th>Label</th><th>UUID</th><th>Type</th></tr></thead><tbody><tr><td>/dev/sda1</td><td>-</td><td>e2b8f1c3-4d5e-4f6a-b7c8-d9e0f1a2b3c4</td><td>xfs</td></tr><tr><td>/dev/sda2</td><td>-</td><td>f3c9d2e4-5e6f-7g8h-i9j0-k1l2m3n4o5p6</td><td>swap</td></tr><tr><td>/dev/sdb1</td><td>data</td><td>a1b2c3d4-e5f6-7g8h-9i0j-k1l2m3n4o5p6</td><td>xfs</td></tr></tbody></table></div>
+            </div>
+        </div>
+        
+        
+        <div class="section">
+            <div class="section-header">
+                <span class="section-icon">🌐</span>
+                <h2 class="section-title">Network</h2>
+            </div>
+            <div class="section-content">
+                <table class="info-table"><tbody><tr><td class="info-key">Interface: lo</td><td class="info-val">IP: N/A / MAC: N/A</td><td class="info-key">Interface: 00</td><td class="info-val">IP: N/A / MAC: N/A</td><td class="info-val"></td></tr><tr><td class="info-key">Interface: </td><td class="info-val">IP: N/A / MAC: N/A</td><td class="info-key">Interface: eth0</td><td class="info-val">IP: 192.168.1.100 / MAC: N/A</td><td class="info-val"></td></tr><tr><td class="info-key">Interface: 54</td><td class="info-val">IP: 192.168.1.100 / MAC: N/A</td><td class="info-key">Interface: </td><td class="info-val">8.8.8.8, 8.8.4.4, 1.1.1.1</td><td class="info-val"></td></tr><tr><td class="info-key">DNS Servers</td><td class="info-val">8.8.8.8, 8.8.4.4, 1.1.1.1</td><td class="info-key">Firewall Rules</td><td class="info-val">13</td><td class="info-val"></td></tr></tbody></table><div class="subsection"><h3>Sample Routes (first 10)</h3><ul class="item-list"><li>default via 192.168.1.1 dev eth0 proto dhcp src 192.168.1.100 metric 100</li><li>192.168.1.0/24 dev eth0 proto kernel scope link src 192.168.1.100 metric 100</li></ul></div>
+            </div>
+        </div>
+        
+        
+        <div class="section">
+            <div class="section-header">
+                <span class="section-icon">🔧</span>
+                <h2 class="section-title">Systemd Services</h2>
+            </div>
+            <div class="section-content">
+                <p class="empty-msg">No service data available</p>
+            </div>
+        </div>
+        
+        
+        <div class="section">
+            <div class="section-header">
+                <span class="section-icon">🔒</span>
+                <h2 class="section-title">SELinux</h2>
+            </div>
+            <div class="section-content">
+                <table class="info-table"><tbody><tr><td class="info-key">Status</td><td class="info-val">SELinux status:                 enabled</td><td class="info-key">Configured Mode</td><td class="info-val">Unknown</td><td class="info-val"></td></tr></tbody></table>
+            </div>
+        </div>
+        
+        
+        <div class="section">
+            <div class="section-header">
+                <span class="section-icon">📝</span>
+                <h2 class="section-title">Log Summary</h2>
+            </div>
+            <div class="section-content">
+                <div class="subsection"><h3>Recent Errors (Journal)</h3><ul class="log-list"><li class="log-error">Dec 07 14:23:01 webserver01 httpd[2345]: ERROR: (13)Permission denied: AH00072: make_sock: could not bind to address [::]:80</li><li class="log-error">Dec 07 14:23:05 webserver01 httpd[2345]: ERROR: (13)Permission denied: AH00072: make_sock: could not bind to address 0.0.0.0:80</li><li class="log-error">Dec 07 14:23:45 webserver01 kernel: ERROR: NMI watchdog: BUG: soft lockup - CPU#0 stuck for 22s</li></ul></div><div class="subsection"><h3>Critical Messages</h3><ul class="log-list"><li class="log-critical">Dec  7 14:18:22 webserver01 kernel: crit: Out of memory: Kill process 1234 (mysqld) score 900 or sacrifice child</li><li class="log-critical">Dec  7 14:18:22 webserver01 kernel: alert: Out of memory: Killed process 1234 (mysqld) total-vm:4567890kB, anon-rss:3456789kB, file-rss:23456kB</li></ul></div>
+            </div>
+        </div>
+        
+        
+        <footer>
+            <p>This report was automatically generated from a sosreport archive.</p>
+            <p>For RHEL 9 system diagnostics - <a href="https://github.com/sosreport/sosreport" style="color: var(--primary)">sosreport project</a></p>
+        </footer>
+    </div>
+</body>
+</html>

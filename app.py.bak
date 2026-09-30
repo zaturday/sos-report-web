@@ -1,0 +1,577 @@
+#!/usr/bin/env python3
+"""
+SOS Report Web Analyzer - Flask Application
+Upload sosreport and generate web analysis report
+"""
+import os
+import tarfile
+import re
+import tempfile
+from flask import Flask, request, render_template_string
+
+app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB max upload
+
+# HTML Templates
+UPLOAD_PAGE = '''
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SOS Report Web Analyzer</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 550px;
+            width: 100%;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 26px;
+            text-align: center;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+            text-align: center;
+        }
+        .upload-area {
+            border: 2px dashed #ddd;
+            border-radius: 12px;
+            padding: 40px 20px;
+            text-align: center;
+            transition: all 0.3s;
+            background: #fafafa;
+        }
+        .upload-area:hover {
+            border-color: #667eea;
+            background: #f0f0ff;
+        }
+        .upload-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+        .upload-text {
+            color: #666;
+            margin-bottom: 25px;
+            font-size: 15px;
+        }
+        input[type="file"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            background: white;
+        }
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 14px 30px;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 25px;
+            width: 100%;
+            font-weight: 500;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+        .info {
+            margin-top: 25px;
+            font-size: 12px;
+            color: #999;
+            text-align: center;
+            line-height: 1.6;
+        }
+        .info a {
+            color: #667eea;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 SOS Report Web Analyzer</h1>
+        <p class="subtitle">อัปโหลดไฟล์ sosreport เพื่อวิเคราะห์ระบบ RHEL 9</p>
+        
+        <form method="post" enctype="multipart/form-data">
+            <div class="upload-area">
+                <div class="upload-icon">📁</div>
+                <p class="upload-text">เลือกไฟล์ sosreport (tar.xz หรือ tar.gz)</p>
+                <input type="file" name="sosreport" accept=".tar.xz,.txz,.tar.gz,.tgz,.tar,.gz,.xz" required>
+            </div>
+            <button type="submit">วิเคราะห์ Report</button>
+        </form>
+        
+        <p class="info">
+            รองรับไฟล์ sosreport จาก RHEL 9<br>
+            วิเคราะห์: System Info, Hardware, Network, Services, Logs, SELinux
+        </p>
+    </div>
+</body>
+</html>
+'''
+
+ERROR_PAGE = '''
+<!DOCTYPE html>
+<html>
+<head><title>Error</title>
+<style>
+    body { font-family: system-ui; padding: 40px; text-align: center; background: #f5f5f5; }
+    .error-box { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); max-width: 500px; margin: 50px auto; }
+    h1 { color: #b00020; margin-bottom: 20px; }
+    p { color: #666; margin-bottom: 20px; }
+    a { color: #667eea; text-decoration: none; }
+</style></head>
+<body>
+    <div class="error-box">
+        <h1>❌ เกิดข้อผิดพลาด</h1>
+        <p>{{ error }}</p>
+        <a href="/">← กลับหน้าหลัก</a>
+    </div>
+</body>
+</html>
+'''
+
+
+def parse_sosreport(archive_path: str) -> dict:
+    """Parse sosreport archive and extract key information."""
+    data = {
+        'system': {},
+        'hardware': {},
+        'network': {},
+        'services': {},
+        'logs': {},
+        'selinux': {}
+    }
+    
+    try:
+        with tarfile.open(archive_path, 'r:*') as tar:
+            files = {}
+            for member in tar.getmembers():
+                if member.isfile():
+                    try:
+                        f = tar.extractfile(member)
+                        if f:
+                            content = f.read().decode('utf-8', errors='replace')
+                            # เก็บทั้ง full path และ base name
+                            full_path = member.name
+                            basename = full_path.split('/')[-1]
+                            files[full_path] = content
+                            # เก็บด้วย base name สำหรับค้นหาเร็ว (ถ้าชื่อไม่ซ้ำ)
+                            if basename not in files or len(full_path) < len(list(files.keys())[0] if files else ''):
+                                files[basename] = content
+                            f.close()
+                    except Exception:
+                        pass
+            
+            # System info - ค้นหา hostname
+            hostname_found = False
+            for name, content in files.items():
+                basename = name.split('/')[-1] if '/' in name else name
+                if basename == 'hostname' and 'sos_commands' not in name:
+                    data['system']['hostname'] = content.strip().split('\n')[0]
+                    hostname_found = True
+                    break
+            if not hostname_found:
+                # ลองค้นหาใน sos_commands/host/
+                for name, content in files.items():
+                    if 'sos_commands/host/hostname' in name:
+                        data['system']['hostname'] = content.strip().split('\n')[0]
+                        break
+            
+            # Kernel - ค้นหา uname
+            for name, content in files.items():
+                if 'sos_commands/kernel/uname_-a' in name or 'uname_-a' in name:
+                    data['system']['kernel'] = content.strip().split('\n')[0]
+                    break
+            
+            # OS release - ค้นหา etc_os-release หรือ usr/lib/os-release
+            for name, content in files.items():
+                if 'os-release' in name and ('etc' in name or 'usr/lib' in name):
+                    for line in content.split('\n'):
+                        if '=' in line:
+                            key, val = line.split('=', 1)
+                            data['system'][key.strip()] = val.strip().strip('"')
+                    break
+            
+            # Hardware - CPU
+            for name, content in files.items():
+                basename = name.split('/')[-1] if '/' in name else name
+                if basename == 'cpuinfo' or 'proc/cpuinfo' in name:
+                    for line in content.split('\n'):
+                        if 'model name' in line:
+                            data['hardware']['cpu'] = line.split(':', 1)[1].strip()
+                        if 'cpu cores' in line:
+                            match = re.search(r'(\d+)', line)
+                            if match:
+                                data['hardware']['cpu_cores'] = match.group(1)
+                    break
+            
+            # Memory
+            for name, content in files.items():
+                basename = name.split('/')[-1] if '/' in name else name
+                if basename == 'meminfo' or 'proc/meminfo' in name:
+                    for line in content.split('\n'):
+                        if 'MemTotal' in line:
+                            match = re.search(r'(\d+)', line)
+                            if match:
+                                kb = int(match.group(1))
+                                data['hardware']['mem_total'] = f"{kb/1024/1024:.1f} GB"
+                    break
+            
+            # DMI/System info
+            for name, content in files.items():
+                if 'sos_commands/hardware/dmidecode' in name or 'dmidecode' in name:
+                    for line in content.split('\n'):
+                        if 'Manufacturer' in line:
+                            data['hardware']['manufacturer'] = line.split(':', 1)[1].strip()
+                        if 'Product Name' in line:
+                            data['hardware']['product'] = line.split(':', 1)[1].strip()
+                    break
+            
+            # Network - IP addresses
+            for name, content in files.items():
+                basename = name.split('/')[-1] if '/' in name else name
+                if basename == 'ip_addr' or 'ip_addr' in name or 'ip_address' in name:
+                    interfaces = []
+                    current_iface = None
+                    for line in content.split('\n'):
+                        if line.strip().startswith('') and ':' in line:
+                            current_iface = line.split(':')[1].strip()
+                            interfaces.append({'name': current_iface})
+                        elif current_iface and 'inet ' in line:
+                            match = re.search(r'inet\s+(\d+\.\d+\.\d+\.\d+)', line)
+                            if match and interfaces:
+                                interfaces[-1]['ip'] = match.group(1)
+                        elif current_iface and 'link/' in line:
+                            match = re.search(r'link/(\S+)', line)
+                            if match and interfaces:
+                                interfaces[-1]['mac'] = match.group(1)
+                    if interfaces:
+                        data['network']['interfaces'] = interfaces
+                    break
+            
+            # DNS
+            for name, content in files.items():
+                if 'resolv.conf' in name and 'etc' in name:
+                    data['network']['dns'] = []
+                    for line in content.split('\n'):
+                        if line.startswith('nameserver'):
+                            parts = line.split()
+                            if len(parts) > 1:
+                                data['network']['dns'].append(parts[1])
+                    break
+            
+            # Routes
+            for name, content in files.items():
+                basename = name.split('/')[-1] if '/' in name else name
+                if basename == 'route' or 'route' in name:
+                    data['network']['routes'] = [
+                        line.strip() for line in content.split('\n')
+                        if line.strip() and not line.startswith('#')
+                    ][:10]
+                    break
+            
+            # Services - systemctl
+            for name, content in files.items():
+                if 'systemctl_status' in name:
+                    data['services']['enabled'] = []
+                    data['services']['failed'] = []
+                    in_enabled = False
+                    in_failed = False
+                    for line in content.split('\n'):
+                        if 'enabled' in line.lower() and 'LOAD' in line:
+                            in_enabled = True
+                            in_failed = False
+                            continue
+                        if 'failed' in line.lower() and 'LOAD' in line:
+                            in_failed = True
+                            in_enabled = False
+                            continue
+                        if in_enabled and line.strip() and not line.startswith('---') and not line.startswith('LOAD') and not line.startswith('UNIT'):
+                            svc_name = line.split()[0] if line.split() else ''
+                            if svc_name and not svc_name.startswith('['):
+                                data['services']['enabled'].append(svc_name)
+                        if in_failed and line.strip() and not line.startswith('---') and not line.startswith('LOAD') and not line.startswith('UNIT'):
+                            svc_name = line.split()[0] if line.split() else ''
+                            if svc_name and not svc_name.startswith('['):
+                                data['services']['failed'].append(svc_name)
+                    break
+            
+            # Logs - journal
+            for name, content in files.items():
+                basename = name.split('/')[-1] if '/' in name else name
+                if 'journalctl' in name and 'sos_commands' in name:
+                    errors = []
+                    for line in content.split('\n'):
+                        if 'ERROR' in line or 'error' in line.lower() or 'FAILED' in line:
+                            errors.append(line.strip()[:150])
+                    if errors:
+                        if 'errors' not in data['logs']:
+                            data['logs']['errors'] = []
+                        data['logs']['errors'].extend(errors[:10])
+                    break
+            
+            # Logs - messages
+            for name, content in files.items():
+                if 'var.log.messages' in name or ('messages' in name and 'sos_strings' in name):
+                    critical = []
+                    for line in content.split('\n'):
+                        if any(x in line.lower() for x in ['crit', 'alert', 'emerg', 'error']):
+                            critical.append(line.strip()[:150])
+                    if critical:
+                        if 'critical' not in data['logs']:
+                            data['logs']['critical'] = []
+                        data['logs']['critical'].extend(critical[:10])
+                    break
+            
+            # SELinux
+            for name, content in files.items():
+                if 'selinux/config' in name or ('selinux' in name and 'config' in name):
+                    for line in content.split('\n'):
+                        if 'SELINUX=' in line:
+                            match = re.search(r' SELINUX=(enforcing|permissive|disabled)', line)
+                            if match:
+                                data['selinux']['mode'] = match.group(1)
+                    break
+            
+            # ดึงข้อมูลจาก sosreport metadata ถ้ามี
+            for name, content in files.items():
+                if 'sosreport' in name and name.endswith('.txt'):
+                    match = re.search(r'\d{4}-\d{2}-\d{2}', content)
+                    if match:
+                        data['system']['sosdate'] = match.group(0)
+                    break
+            
+        return data
+    except Exception as e:
+        raise Exception(f"ไม่สามารถอ่านไฟล์ได้: {str(e)}")
+
+
+def build_report_html(data: dict, filename: str) -> str:
+    """Build HTML report from parsed data."""
+    from datetime import datetime
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    def row(key, val):
+        return f'<tr><td style="padding:10px 15px;border-bottom:1px solid #eee;font-weight:600;width:220px;background:#f5f5f5;vertical-align:top">{key}</td><td style="padding:10px 15px;border-bottom:1px solid #eee;vertical-align:top">{val}</td></tr>'
+    
+    def rows(items):
+        return ''.join(row(k, v) for k, v in items if v) or '<tr><td colspan="2" style="padding:20px;text-align:center;color:#999">ไม่มีข้อมูล</td></tr>'
+    
+    # System
+    sys_rows = rows(list(data.get('system', {}).items()))
+    
+    # Hardware
+    hw_rows = rows(list(data.get('hardware', {}).items()))
+    
+    # Network
+    net_rows = ''
+    for iface in data.get('network', {}).get('interfaces', []):
+        net_rows += row(iface.get('name', '?'), f"IP: {iface.get('ip', 'N/A')} / MAC: {iface.get('mac', 'N/A')}")
+    dns = ', '.join(data.get('network', {}).get('dns', []))
+    if dns:
+        net_rows += row('DNS Servers', dns)
+    routes = data.get('network', {}).get('routes', [])
+    if routes:
+        net_rows += row('Routes (sample)', '<br>'.join(routes))
+    net_rows = net_rows or '<tr><td colspan="2" style="padding:20px;text-align:center;color:#999">ไม่มีข้อมูล</td></tr>'
+    
+    # Services
+    enabled = data.get('services', {}).get('enabled', [])
+    failed = data.get('services', {}).get('failed', [])
+    en_html = ''
+    if enabled:
+        en_html = '<h3 style="margin:15px 0 10px;padding-bottom:5px;border-bottom:1px solid #eee;font-size:14px">Services ที่เปิดใช้งาน (ตัวอย่าง)</h3><ul>'
+        en_html += ''.join(f'<li style="padding:6px 12px;margin:4px 0;background:#f5f5f5;border-radius:4px;border-left:3px solid #1a56db;font-family:monospace;font-size:13px">{s}</li>' for s in enabled[:15])
+        en_html += '</ul>'
+        if len(enabled) > 15:
+            en_html += f'<p style="color:#999;font-size:12px;margin-top:10px">และอีก {len(enabled)-15} services</p>'
+    
+    fail_html = ''
+    if failed:
+        fail_html = '<h3 style="margin:15px 0 10px;padding-bottom:5px;border-bottom:1px solid #eee;font-size:14px;color:#b00020">⚠️ Services ที่ล้มเหลว</h3><ul>'
+        fail_html += ''.join(f'<li style="padding:6px 12px;margin:4px 0;background:#fef2f2;border-radius:4px;border-left:3px solid #b00020;color:#991b1b;font-family:monospace;font-size:13px">{s}</li>' for s in failed[:10])
+        fail_html += '</ul>'
+    
+    svc_html = en_html + fail_html
+    if not svc_html:
+        svc_html = '<div style="padding:20px;text-align:center;color:#999">ไม่มีข้อมูล Services</div>'
+    
+    # Logs
+    logs_html = ''
+    for err in data.get('logs', {}).get('errors', [])[:8]:
+        logs_html += f'<li style="padding:8px 12px;margin:4px 0;background:#fff7ed;border-radius:4px;border-left:3px solid #b06000;color:#9a3412;font-family:monospace;font-size:12px">{err}</li>'
+    for crit in data.get('logs', {}).get('critical', [])[:5]:
+        logs_html += f'<li style="padding:8px 12px;margin:4px 0;background:#fff7ed;border-radius:4px;border-left:3px solid #b06000;color:#9a3412;font-family:monospace;font-size:12px">{crit}</li>'
+    
+    if logs_html:
+        logs_html = f'<ul>{logs_html}</ul>'
+    else:
+        logs_html = '<div style="padding:20px;text-align:center;color:#999">ไม่พบข้อผิดพลาดใน log</div>'
+    
+    # SELinux
+    selinux_rows = rows(list(data.get('selinux', {}).items()))
+    
+    return f'''
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SOS Report - {filename}</title>
+    <style>
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; padding: 20px; }}
+        .container {{ max-width: 1000px; margin: 0 auto; }}
+        header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 25px; border-radius: 12px; margin-bottom: 20px; }}
+        header h1 {{ font-size: 24px; margin-bottom: 5px; }}
+        header .sub {{ opacity: 0.9; font-size: 13px; }}
+        .card {{ background: white; border-radius: 10px; margin-bottom: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); overflow: hidden; }}
+        .card-header {{ background: #f5f5f5; padding: 15px 20px; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 10px; }}
+        .card-header .icon {{ font-size: 20px; }}
+        .card-header h2 {{ font-size: 16px; font-weight: 600; color: #111; }}
+        .card-body {{ padding: 15px 20px; }}
+        table {{ width: 100%; border-collapse: collapse; }}
+        li {{ list-style: none; }}
+        .actions {{ margin-top: 20px; display: flex; gap: 10px; }}
+        .btn {{ padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; text-decoration: none; font-size: 14px; }}
+        .btn-primary {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }}
+        .btn-secondary {{ background: #666; color: white; }}
+        @media print {{ .actions {{ display: none; }} header {{ background: #667eea !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }} }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📊 รายงาน SOS Report</h1>
+            <div class="sub">ไฟล์: {filename} | สร้างเมื่อ: {ts}</div>
+        </header>
+        
+        <div class="card">
+            <div class="card-header"><span class="icon">💻</span><h2>ข้อมูลระบบ (System Information)</h2></div>
+            <div class="card-body"><table>{sys_rows}</table></div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header"><span class="icon">⚙️</span><h2>ฮาร์ดแวร์ (Hardware)</h2></div>
+            <div class="card-body"><table>{hw_rows}</table></div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header"><span class="icon">🌐</span><h2>เครือข่าย (Network)</h2></div>
+            <div class="card-body"><table>{net_rows}</table></div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header"><span class="icon">🔧</span><h2>Services (Systemd)</h2></div>
+            <div class="card-body">{svc_html}</div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header"><span class="icon">📝</span><h2>บันทึกข้อผิดพลาด (Logs)</h2></div>
+            <div class="card-body">{logs_html}</div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header"><span class="icon">🔒</span><h2>SELinux</h2></div>
+            <div class="card-body"><table>{selinux_rows}</table></div>
+        </div>
+        
+        <div class="actions">
+            <a href="/" class="btn btn-primary">⬅️ อัปโหลดไฟล์ใหม่</a>
+            <button onclick="window.print()" class="btn btn-secondary">🖨️ พิมพ์รายงาน</button>
+        </div>
+    </div>
+</body>
+</html>
+    '''
+
+
+@app.route('/', methods=['GET', 'POST'])
+def index():
+    if request.method == 'POST':
+        if 'sosreport' not in request.files:
+            return render_template_string(ERROR_PAGE, error="ไม่พบไฟล์ที่อัปโหลด"), 400
+        
+        file = request.files['sosreport']
+        if file.filename == '':
+            return render_template_string(ERROR_PAGE, error="ไม่ได้เลือกไฟล์"), 400
+        
+        allowed_ext = ['.tar.xz', '.txz', '.tar.gz', '.tgz']
+        filename_lower = file.filename.lower()
+        if not any(filename_lower.endswith(ext) for ext in allowed_ext):
+            return render_template_string(ERROR_PAGE, error="รูปแบบไฟล์ไม่ถูกต้อง กรุณาใช้ .tar.xz หรือ .tar.gz"), 400
+        
+        # Save to temp file
+        with tempfile.NamedTemporaryFile(suffix='.tar.xz', delete=False) as tmp:
+            file.save(tmp.name)
+            tmp_path = tmp.name
+        
+        try:
+            # Parse the report
+            data = parse_sosreport(tmp_path)
+            
+            # Generate HTML report
+            report_html = build_report_html(data, file.filename)
+            
+            # Save report to temp file for download
+            report_path = tmp_path.replace('.tar.xz', '_report.html')
+            with open(report_path, 'w', encoding='utf-8') as f:
+                f.write(report_html)
+            
+            return report_html
+            
+        except Exception as e:
+            import traceback
+            print(f"Error: {e}")
+            print(traceback.format_exc())
+            return render_template_string(ERROR_PAGE, error=f"เกิดข้อผิดพลาด: {str(e)}"), 500
+        finally:
+            # Cleanup temp files
+            import os as os_module
+            for path in [tmp_path, tmp_path.replace('.tar.xz', '_report.html')]:
+                if os_module.path.exists(path):
+                    try:
+                        os_module.unlink(path)
+                    except:
+                        pass
+    
+    return render_template_string(UPLOAD_PAGE)
+
+
+@app.route('/health')
+def health():
+    return {'status': 'ok', 'timestamp': __import__('datetime').datetime.now().isoformat()}
+
+
+if __name__ == '__main__':
+    print("=" * 60)
+    print("🚀 SOS Report Web Analyzer")
+    print("=" * 60)
+    print("📍 เปิดเบราว์เซอร์ที่: http://localhost:8080")
+    print("📝 Upload หน้าแรกจะแสดงขึ้นมาให้อัปโหลดไฟล์ sosreport")
+    print("=" * 60)
+    app.run(host='0.0.0.0', port=8080, debug=False)
